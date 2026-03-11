@@ -1,3 +1,4 @@
+import { Boxes, FolderKanban, Globe, Lock, Network, ScrollText } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { copyTitle, copyToClipboard } from "../lib/copy";
 import type {
@@ -151,6 +152,7 @@ export function NamespaceConsole({
               <div className="namespace-row__title">
                 <span className="namespace-row__caret">{expanded ? "-" : "+"}</span>
                 <span className="namespace-badge">Namespace</span>
+                <FolderKanban size={14} strokeWidth={1.8} className="resource-icon" />
                 <code>{namespace.name}</code>
               </div>
               <div className="namespace-row__stats">
@@ -177,6 +179,7 @@ export function NamespaceConsole({
                     className={`namespace-tab ${activeTab === "pods" ? "namespace-tab--active" : ""}`}
                     onClick={() => setNamespaceTabs((current) => ({ ...current, [namespace.name]: "pods" }))}
                   >
+                    <Boxes size={14} strokeWidth={1.8} className="resource-icon" />
                     Pods
                     <span>{namespace.podCount}</span>
                   </button>
@@ -185,6 +188,7 @@ export function NamespaceConsole({
                     className={`namespace-tab ${activeTab === "services" ? "namespace-tab--active" : ""}`}
                     onClick={() => setNamespaceTabs((current) => ({ ...current, [namespace.name]: "services" }))}
                   >
+                    <Network size={14} strokeWidth={1.8} className="resource-icon" />
                     SVC
                     <span>{namespace.serviceCount}</span>
                   </button>
@@ -193,6 +197,7 @@ export function NamespaceConsole({
                     className={`namespace-tab ${activeTab === "ingresses" ? "namespace-tab--active" : ""}`}
                     onClick={() => setNamespaceTabs((current) => ({ ...current, [namespace.name]: "ingresses" }))}
                   >
+                    <Globe size={14} strokeWidth={1.8} className="resource-icon" />
                     ING
                     <span>{namespace.ingressCount}</span>
                   </button>
@@ -201,6 +206,7 @@ export function NamespaceConsole({
                     className={`namespace-tab ${activeTab === "configMaps" ? "namespace-tab--active" : ""}`}
                     onClick={() => setNamespaceTabs((current) => ({ ...current, [namespace.name]: "configMaps" }))}
                   >
+                    <ScrollText size={14} strokeWidth={1.8} className="resource-icon" />
                     CM
                     <span>{namespace.configMapCount}</span>
                   </button>
@@ -209,6 +215,7 @@ export function NamespaceConsole({
                     className={`namespace-tab ${activeTab === "secrets" ? "namespace-tab--active" : ""}`}
                     onClick={() => setNamespaceTabs((current) => ({ ...current, [namespace.name]: "secrets" }))}
                   >
+                    <Lock size={14} strokeWidth={1.8} className="resource-icon" />
                     Secrets
                     <span>{namespace.secretCount}</span>
                   </button>

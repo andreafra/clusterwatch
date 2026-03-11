@@ -21,8 +21,9 @@ type ServerConfig struct {
 }
 
 func Load(path string) (Config, error) {
+	cfg := defaultConfig()
 	if path == "" {
-		path = "config.example.yaml"
+		return cfg, nil
 	}
 
 	raw, err := os.ReadFile(path)
@@ -30,13 +31,20 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("read %s: %w", path, err)
 	}
 
-	var cfg Config
 	if err := yaml.Unmarshal(raw, &cfg); err != nil {
 		return Config{}, fmt.Errorf("parse %s: %w", path, err)
 	}
 
+	return normalizeConfig(cfg), nil
+}
+
+func defaultConfig() Config {
+	return normalizeConfig(Config{})
+}
+
+func normalizeConfig(cfg Config) Config {
 	if cfg.Server.Address == "" {
-		cfg.Server.Address = ":8080"
+		cfg.Server.Address = "localhost:42069"
 	}
 	if cfg.Server.AllowedOrigin == "" {
 		cfg.Server.AllowedOrigin = "http://localhost:5173"
@@ -46,7 +54,7 @@ func Load(path string) (Config, error) {
 	}
 	cfg.Kubeconfig = expandHome(cfg.Kubeconfig)
 
-	return cfg, nil
+	return cfg
 }
 
 func expandHome(value string) string {

@@ -1,0 +1,164 @@
+name: Build and Release
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Run Go tests
+        run: go test ./...
+
+  package:
+    name: Package ${{ matrix.goos }}-${{ matrix.goarch }}
+    needs: verify
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: windows
+            goarch: amd64
+            runner: windows-latest
+            binary_name: clusterwatch-local.exe
+            package_name: clusterwatch-local-windows-amd64
+          - goos: linux
+            goarch: amd64
+            runner: ubuntu-latest
+            binary_name: clusterwatch-local
+            package_name: clusterwatch-local-linux-amd64
+    env:
+      CGO_ENABLED: 0
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+      BINARY_NAME: ${{ matrix.binary_name }}
+      PACKAGE_NAME: ${{ matrix.package_name }}
+      CERTIFICATE_PFX_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_PFX_BASE64 }}
+      CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+      TIMESTAMP_URL: ${{ secrets.WINDOWS_SIGNTOOL_TIMESTAMP_URL }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Build backend
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path build | Out-Null
+          go build `
+            -tags release `
+            -trimpath `
+            -ldflags "-s -w" `
+            -o "build/$env:BINARY_NAME" `
+            ./cmd/server
+
+      - name: Optionally sign Windows executable
+        if: matrix.goos == 'windows'
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:CERTIFICATE_PFX_BASE64) -or [string]::IsNullOrWhiteSpace($env:CERTIFICATE_PASSWORD)) {
+            Write-Host "Skipping signing because certificate secrets are not configured."
+            exit 0
+          }
+
+          $certificatePath = Join-Path $env:RUNNER_TEMP "codesign.pfx"
+          [System.IO.File]::WriteAllBytes(
+            $certificatePath,
+            [System.Convert]::FromBase64String($env:CERTIFICATE_PFX_BASE64)
+          )
+
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Filter signtool.exe -Recurse |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+
+          if (-not $signtool) {
+            throw "signtool.exe not found on the runner."
+          }
+
+          $timestampUrl = if ([string]::IsNullOrWhiteSpace($env:TIMESTAMP_URL)) { "http://timestamp.digicert.com" } else { $env:TIMESTAMP_URL }
+
+          & $signtool sign `
+            /fd SHA256 `
+            /f $certificatePath `
+            /p $env:CERTIFICATE_PASSWORD `
+            /tr $timestampUrl `
+            /td SHA256 `
+            "build/$env:BINARY_NAME"
+
+      - name: Assemble package
+        shell: pwsh
+        run: |
+          $root = Join-Path "release" $env:PACKAGE_NAME
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          Copy-Item "build/$env:BINARY_NAME" $root
+          Copy-Item "config.example.yaml" $root
+          Copy-Item "README.md" $root
+          Compress-Archive -Path $root -DestinationPath "release/$env:PACKAGE_NAME.zip" -Force
+
+      - name: Upload packaged artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.package_name }}
+          path: release/${{ matrix.package_name }}.zip
+
+      - name: Publish GitHub release assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/${{ matrix.package_name }}.zip

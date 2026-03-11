@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -30,7 +31,7 @@ type Router struct {
 	upgrader websocket.Upgrader
 }
 
-func NewRouter(cfg config.Config, manager *kube.Manager, hub *stream.Hub, sampler *system.Sampler, logger *slog.Logger) http.Handler {
+func NewRouter(cfg config.Config, manager *kube.Manager, hub *stream.Hub, sampler *system.Sampler, logger *slog.Logger, dashboardFS fs.FS) http.Handler {
 	router := &Router{
 		cfg:     cfg,
 		manager: manager,
@@ -49,7 +50,7 @@ func NewRouter(cfg config.Config, manager *kube.Manager, hub *stream.Hub, sample
 	mux.HandleFunc("/api/v1/inventory", router.handleInventory)
 	mux.HandleFunc("/api/v1/runtime", router.handleRuntime)
 	mux.HandleFunc("/ws", router.handleWS)
-	registerDashboardRoutes(mux, logger)
+	registerDashboardRoutes(mux, logger, dashboardFS)
 
 	return withCORS(cfg.Server.AllowedOrigin, mux)
 }
@@ -178,12 +179,10 @@ func isAllowedWebSocketOrigin(r *http.Request, allowedOrigin string) bool {
 	return hostname == "localhost" || hostname == "127.0.0.1"
 }
 
-func registerDashboardRoutes(mux *http.ServeMux, logger *slog.Logger) {
-	distDir := filepath.Join("frontend", "dist")
-	distFS := os.DirFS(distDir)
-
-	if _, err := fs.Stat(distFS, "index.html"); err != nil {
-		logger.Warn("frontend dist is unavailable; /dashboard will return 404 until the frontend is built", "path", distDir, "error", err)
+func registerDashboardRoutes(mux *http.ServeMux, logger *slog.Logger, dashboardFS fs.FS) {
+	distFS, source, err := resolveDashboardFS(dashboardFS)
+	if err != nil {
+		logger.Warn("frontend dist is unavailable; /dashboard will return 404 until the frontend is built", "source", source, "error", err)
 		return
 	}
 
@@ -216,4 +215,21 @@ func serveDashboardIndex(distFS fs.FS) http.HandlerFunc {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write(data)
 	}
+}
+
+func resolveDashboardFS(dashboardFS fs.FS) (fs.FS, string, error) {
+	if dashboardFS != nil {
+		if _, err := fs.Stat(dashboardFS, "index.html"); err != nil {
+			return nil, "embedded frontend", err
+		}
+		return dashboardFS, "embedded frontend", nil
+	}
+
+	distDir := filepath.Join("frontend", "dist")
+	distFS := os.DirFS(distDir)
+	if _, err := fs.Stat(distFS, "index.html"); err != nil {
+		return nil, distDir, fmt.Errorf("missing built frontend at %s: %w", distDir, err)
+	}
+
+	return distFS, distDir, nil
 }

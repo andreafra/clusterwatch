@@ -1,3 +1,4 @@
+import { Boxes, FolderKanban } from "lucide-react";
 import { StatusPill } from "./StatusPill";
 import type { ClusterInventory, ClusterSnapshot, Tenant } from "../types";
 
@@ -38,8 +39,14 @@ export function ContextTabs({
               <StatusPill state={snapshot?.connection ?? "pending"} />
             </div>
             <div className="context-tab__meta">
-              <span>{namespaceCount} ns</span>
-              <span>{podCount} pods</span>
+              <span className="context-tab__metric">
+                <FolderKanban size={13} strokeWidth={1.8} />
+                {namespaceCount} ns
+              </span>
+              <span className="context-tab__metric">
+                <Boxes size={13} strokeWidth={1.8} />
+                {podCount} pods
+              </span>
               <span className={problemPods > 0 ? "keyword keyword--degraded" : "keyword keyword--connected"}>
                 {problemPods} issues
               </span>

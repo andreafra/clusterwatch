@@ -1,6 +1,21 @@
 bin/
+build/
+release/
 dist/
 node_modules/
 .DS_Store
 coverage/
 
+.idea/
+
+frontend/dist/
+frontend/node_modules/
+frontend/*.tsbuildinfo
+
+*.exe
+*.test
+*.out
+*.log
+*.tmp
+
+*.go.[0-9]*

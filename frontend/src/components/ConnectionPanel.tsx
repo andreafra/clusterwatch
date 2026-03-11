@@ -1,3 +1,14 @@
+import {
+  Activity,
+  Clock3,
+  Cpu,
+  HardDrive,
+  Layers3,
+  MemoryStick,
+  Radio,
+  Server,
+  Waves,
+} from "lucide-react";
 import type { DashboardState } from "../types";
 
 export function ConnectionPanel({
@@ -17,45 +28,45 @@ export function ConnectionPanel({
 
       <dl className="connection-grid">
         <div>
-          <dt>REST bootstrap</dt>
+          <dt><Radio size={13} strokeWidth={1.8} /> REST bootstrap</dt>
           <dd>{state.bootstrapError ? "Attention required" : "Ready"}</dd>
         </div>
         <div>
-          <dt>WebSocket</dt>
+          <dt><Waves size={13} strokeWidth={1.8} /> WebSocket</dt>
           <dd>{state.streamConnected ? "Open" : "Closed"}</dd>
         </div>
         <div>
-          <dt>Last message</dt>
+          <dt><Clock3 size={13} strokeWidth={1.8} /> Last message</dt>
           <dd>{state.lastMessageAt ? new Date(state.lastMessageAt).toLocaleTimeString() : "Pending"}</dd>
         </div>
         <div>
-          <dt>Known clusters</dt>
+          <dt><Server size={13} strokeWidth={1.8} /> Known clusters</dt>
           <dd>{Object.keys(state.snapshots).length}</dd>
         </div>
         <div>
-          <dt>CPU</dt>
+          <dt><Cpu size={13} strokeWidth={1.8} /> CPU</dt>
           <dd>{state.runtime ? `${state.runtime.cpuPercent.toFixed(1)}%` : "--"}</dd>
         </div>
         <div>
           <dt title="Resident Set Size: the physical RAM currently occupied by this Go process.">
-            RSS
+            <MemoryStick size={13} strokeWidth={1.8} /> RSS
           </dt>
           <dd>{state.runtime ? formatBytes(state.runtime.rssBytes) : "--"}</dd>
         </div>
         <div>
-          <dt>Heap</dt>
+          <dt><HardDrive size={13} strokeWidth={1.8} /> Heap</dt>
           <dd>{state.runtime ? formatBytes(state.runtime.heapAllocBytes) : "--"}</dd>
         </div>
         <div>
-          <dt>Goroutines</dt>
+          <dt><Layers3 size={13} strokeWidth={1.8} /> Goroutines</dt>
           <dd>{state.runtime ? state.runtime.goroutines : "--"}</dd>
         </div>
         <div>
-          <dt>GC</dt>
+          <dt><Activity size={13} strokeWidth={1.8} /> GC</dt>
           <dd>{state.runtime ? state.runtime.gcCount : "--"}</dd>
         </div>
         <div>
-          <dt>Uptime</dt>
+          <dt><Clock3 size={13} strokeWidth={1.8} /> Uptime</dt>
           <dd>{state.runtime ? formatUptime(state.runtime.uptimeSeconds) : "--"}</dd>
         </div>
       </dl>

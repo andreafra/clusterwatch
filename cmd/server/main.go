@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	clusterwatchlocal "github.com/example/clusterwatch-local"
 	"github.com/example/clusterwatch-local/internal/api"
 	"github.com/example/clusterwatch-local/internal/config"
 	"github.com/example/clusterwatch-local/internal/kube"
@@ -46,9 +47,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	dashboardFS, embeddedDashboard, err := clusterwatchlocal.EmbeddedFrontend()
+	if err != nil {
+		logger.Error("load embedded frontend", "error", err)
+		os.Exit(1)
+	}
+
 	server := &http.Server{
 		Addr:              cfg.Server.Address,
-		Handler:           api.NewRouter(cfg, manager, hub, sampler, logger),
+		Handler:           api.NewRouter(cfg, manager, hub, sampler, logger, dashboardFS),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -60,6 +67,7 @@ func main() {
 	}()
 
 	logger.Info("server listening", "address", cfg.Server.Address, "tenants", len(manager.Tenants()))
+	logger.Info("dashboard asset mode", "embedded", embeddedDashboard)
 	logger.Info("Open the following URL in your browser to access the dashboard", "url", "http://"+cfg.Server.Address+"/dashboard")
 	logger.Info("Press Ctrl-C to exit")
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {

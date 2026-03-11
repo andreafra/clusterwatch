@@ -203,6 +203,15 @@ body {
   flex-wrap: wrap;
 }
 
+.context-tab__metric,
+.resource-icon,
+.inspector-header__value,
+.connection-grid dt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .toolbar {
   display: grid;
   grid-template-columns: 140px minmax(0, 1fr) 180px;
@@ -562,6 +571,12 @@ body {
 
 .inspector-header__meta .copyable {
   font-family: "IBM Plex Mono", "Consolas", monospace;
+}
+
+.inspector-header__value .copyable,
+.inspector-header__value code,
+.inspector-header__value span {
+  min-width: 0;
 }
 
 .inspector-header__label {
