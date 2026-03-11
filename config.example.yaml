@@ -1,0 +1,9 @@
+server:
+  address: "localhost:42069"
+  allowedOrigin: "http://localhost:5173"
+
+kubeconfig: "~/.kube/config"
+
+tenants: []
+#  - "arn:aws:eks:eu-west-1:111111111111:cluster/sandbox-core"
+#  - "arn:aws:eks:eu-west-1:222222222222:cluster/prod-observability"

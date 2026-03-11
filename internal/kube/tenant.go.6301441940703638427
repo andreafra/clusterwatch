@@ -1,0 +1,114 @@
+package kube
+
+import (
+	"fmt"
+	"slices"
+
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	"k8s.io/client-go/tools/clientcmd"
+
+	"github.com/example/clusterwatch-local/internal/model"
+)
+
+type Tenant struct {
+	ID         string
+	Name       string
+	Context    string
+	AWSProfile string
+	Namespaces []string
+}
+
+func DiscoverTenants(kubeconfigPath string, selected []string) ([]Tenant, error) {
+	rawConfig, err := loadRawConfig(kubeconfigPath)
+	if err != nil {
+		return nil, err
+	}
+
+	selectedSet := make(map[string]struct{}, len(selected))
+	for _, id := range selected {
+		selectedSet[id] = struct{}{}
+	}
+
+	contextNames := make([]string, 0, len(rawConfig.Contexts))
+	for contextName := range rawConfig.Contexts {
+		if len(selectedSet) > 0 {
+			if _, ok := selectedSet[contextName]; !ok {
+				continue
+			}
+		}
+		contextNames = append(contextNames, contextName)
+	}
+	slices.Sort(contextNames)
+
+	if len(selectedSet) > 0 && len(contextNames) != len(selectedSet) {
+		missing := make([]string, 0)
+		for id := range selectedSet {
+			if _, ok := rawConfig.Contexts[id]; !ok {
+				missing = append(missing, id)
+			}
+		}
+		slices.Sort(missing)
+		return nil, fmt.Errorf("contexts not found in kubeconfig: %v", missing)
+	}
+
+	tenants := make([]Tenant, 0, len(contextNames))
+	for _, contextName := range contextNames {
+		contextEntry := rawConfig.Contexts[contextName]
+		tenant := Tenant{
+			ID:         contextName,
+			Name:       contextName,
+			Context:    contextName,
+			AWSProfile: awsProfileForContext(rawConfig, contextEntry),
+			Namespaces: []string{},
+		}
+		tenants = append(tenants, tenant)
+	}
+
+	if len(tenants) == 0 {
+		return nil, fmt.Errorf("no kubeconfig contexts available")
+	}
+
+	return tenants, nil
+}
+
+func loadRawConfig(kubeconfigPath string) (*clientcmdapi.Config, error) {
+	loader := &clientcmd.ClientConfigLoadingRules{
+		ExplicitPath: kubeconfigPath,
+	}
+
+	rawConfig, err := loader.Load()
+	if err != nil {
+		return nil, fmt.Errorf("load kubeconfig: %w", err)
+	}
+
+	return rawConfig, nil
+}
+
+func awsProfileForContext(rawConfig *clientcmdapi.Config, contextEntry *clientcmdapi.Context) string {
+	if contextEntry == nil {
+		return ""
+	}
+
+	authInfo, ok := rawConfig.AuthInfos[contextEntry.AuthInfo]
+	if !ok || authInfo == nil || authInfo.Exec == nil {
+		return ""
+	}
+
+	for _, envVar := range authInfo.Exec.Env {
+		if envVar.Name == "AWS_PROFILE" {
+			return envVar.Value
+		}
+	}
+
+	return ""
+}
+
+func toTenantInfo(tenant Tenant) model.TenantInfo {
+	return model.TenantInfo{
+		ID:         tenant.ID,
+		Name:       tenant.Name,
+		Context:    tenant.Context,
+		AWSProfile: tenant.AWSProfile,
+		Namespaces: append([]string(nil), tenant.Namespaces...),
+	}
+}

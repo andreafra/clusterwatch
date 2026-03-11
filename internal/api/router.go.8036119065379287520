@@ -1,0 +1,125 @@
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"log/slog"
+	"net/http"
+	"time"
+
+	"github.com/gorilla/websocket"
+
+	"github.com/example/clusterwatch-local/internal/config"
+	"github.com/example/clusterwatch-local/internal/kube"
+	"github.com/example/clusterwatch-local/internal/model"
+	"github.com/example/clusterwatch-local/internal/stream"
+)
+
+type Router struct {
+	cfg      config.Config
+	manager  *kube.Manager
+	hub      *stream.Hub
+	logger   *slog.Logger
+	upgrader websocket.Upgrader
+}
+
+func NewRouter(cfg config.Config, manager *kube.Manager, hub *stream.Hub, logger *slog.Logger) http.Handler {
+	router := &Router{
+		cfg:     cfg,
+		manager: manager,
+		hub:     hub,
+		logger:  logger,
+		upgrader: websocket.Upgrader{
+			CheckOrigin: func(r *http.Request) bool {
+				return r.Header.Get("Origin") == cfg.Server.AllowedOrigin || r.Header.Get("Origin") == ""
+			},
+		},
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", router.handleHealth)
+	mux.HandleFunc("/api/v1/tenants", router.handleTenants)
+	mux.HandleFunc("/api/v1/snapshots", router.handleSnapshots)
+	mux.HandleFunc("/ws", router.handleWS)
+
+	return withCORS(cfg.Server.AllowedOrigin, mux)
+}
+
+func (r *Router) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (r *Router) handleTenants(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, r.manager.Tenants())
+}
+
+func (r *Router) handleSnapshots(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, r.manager.Snapshots())
+}
+
+func (r *Router) handleWS(w http.ResponseWriter, req *http.Request) {
+	conn, err := r.upgrader.Upgrade(w, req, nil)
+	if err != nil {
+		r.logger.Warn("upgrade websocket", "error", err)
+		return
+	}
+	defer conn.Close()
+
+	ctx, cancel := context.WithCancel(req.Context())
+	defer cancel()
+
+	events := r.hub.Subscribe(ctx)
+	for _, snapshot := range r.manager.Snapshots() {
+		if err := conn.WriteJSON(model.Event{
+			Type:      "snapshot.bootstrap",
+			TenantID:  snapshot.TenantID,
+			Timestamp: time.Now().UTC(),
+			Payload:   snapshot,
+		}); err != nil {
+			return
+		}
+	}
+
+	go func() {
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				cancel()
+				return
+			}
+		}
+	}()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case event, ok := <-events:
+			if !ok {
+				return
+			}
+			if err := conn.WriteJSON(event); err != nil {
+				return
+			}
+		}
+	}
+}
+
+func withCORS(origin string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func writeJSON(w http.ResponseWriter, status int, payload any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(payload)
+}
+

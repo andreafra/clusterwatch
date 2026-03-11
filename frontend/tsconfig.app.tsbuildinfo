@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/api.ts","./src/main.tsx","./src/types.ts","./src/components/connectionpanel.tsx","./src/components/eventstream.tsx","./src/components/header.tsx","./src/components/statuspill.tsx","./src/components/tenantcard.tsx","./src/components/tenantoverviewcard.tsx","./src/hooks/usedashboardstate.ts"],"version":"5.9.3"}
