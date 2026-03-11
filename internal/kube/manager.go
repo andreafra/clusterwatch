@@ -164,7 +164,11 @@ func (m *Manager) watchTenant(ctx context.Context, tenant Tenant) error {
 	pods := factory.Core().V1().Pods().Informer()
 	namespaces := factory.Core().V1().Namespaces().Informer()
 	nodes := factory.Core().V1().Nodes().Informer()
+	services := factory.Core().V1().Services().Informer()
+	secrets := factory.Core().V1().Secrets().Informer()
+	configMaps := factory.Core().V1().ConfigMaps().Informer()
 	deployments := factory.Apps().V1().Deployments().Informer()
+	ingresses := factory.Networking().V1().Ingresses().Informer()
 
 	publish := func(message string) {
 		now := time.Now().UTC()
@@ -174,7 +178,16 @@ func (m *Manager) watchTenant(ctx context.Context, tenant Tenant) error {
 			Pods:        countObjects(pods.GetStore().List(), tenant.Namespaces),
 			Deployments: countObjects(deployments.GetStore().List(), tenant.Namespaces),
 		}
-		inventory := buildInventory(tenant, namespaces.GetStore().List(), pods.GetStore().List(), now)
+		inventory := buildInventory(
+			tenant,
+			namespaces.GetStore().List(),
+			pods.GetStore().List(),
+			services.GetStore().List(),
+			ingresses.GetStore().List(),
+			configMaps.GetStore().List(),
+			secrets.GetStore().List(),
+			now,
+		)
 		m.updateState(tenant, counts, inventory, "connected", message, now)
 	}
 
@@ -199,7 +212,19 @@ func (m *Manager) watchTenant(ctx context.Context, tenant Tenant) error {
 	if _, err := nodes.AddEventHandler(handler); err != nil {
 		return err
 	}
+	if _, err := services.AddEventHandler(handler); err != nil {
+		return err
+	}
+	if _, err := secrets.AddEventHandler(handler); err != nil {
+		return err
+	}
+	if _, err := configMaps.AddEventHandler(handler); err != nil {
+		return err
+	}
 	if _, err := deployments.AddEventHandler(handler); err != nil {
+		return err
+	}
+	if _, err := ingresses.AddEventHandler(handler); err != nil {
 		return err
 	}
 
@@ -207,7 +232,17 @@ func (m *Manager) watchTenant(ctx context.Context, tenant Tenant) error {
 	defer close(stopCh)
 	factory.Start(stopCh)
 
-	if !cache.WaitForCacheSync(ctx.Done(), pods.HasSynced, namespaces.HasSynced, nodes.HasSynced, deployments.HasSynced) {
+	if !cache.WaitForCacheSync(
+		ctx.Done(),
+		pods.HasSynced,
+		namespaces.HasSynced,
+		nodes.HasSynced,
+		services.HasSynced,
+		secrets.HasSynced,
+		configMaps.HasSynced,
+		deployments.HasSynced,
+		ingresses.HasSynced,
+	) {
 		return fmt.Errorf("cache sync timed out")
 	}
 

@@ -9,10 +9,9 @@ export function ConnectionPanel({
 }) {
   return (
     <section className={`panel${compact ? " panel--compact" : ""}`}>
-      <div className="panel__header">
+      <div className="panel__header panel__header--tight">
         <div>
-          <p className="eyebrow">System</p>
-          <h2>Transport</h2>
+          <p className="eyebrow">Local process</p>
         </div>
       </div>
 
@@ -33,9 +32,67 @@ export function ConnectionPanel({
           <dt>Known clusters</dt>
           <dd>{Object.keys(state.snapshots).length}</dd>
         </div>
+        <div>
+          <dt>CPU</dt>
+          <dd>{state.runtime ? `${state.runtime.cpuPercent.toFixed(1)}%` : "--"}</dd>
+        </div>
+        <div>
+          <dt title="Resident Set Size: the physical RAM currently occupied by this Go process.">
+            RSS
+          </dt>
+          <dd>{state.runtime ? formatBytes(state.runtime.rssBytes) : "--"}</dd>
+        </div>
+        <div>
+          <dt>Heap</dt>
+          <dd>{state.runtime ? formatBytes(state.runtime.heapAllocBytes) : "--"}</dd>
+        </div>
+        <div>
+          <dt>Goroutines</dt>
+          <dd>{state.runtime ? state.runtime.goroutines : "--"}</dd>
+        </div>
+        <div>
+          <dt>GC</dt>
+          <dd>{state.runtime ? state.runtime.gcCount : "--"}</dd>
+        </div>
+        <div>
+          <dt>Uptime</dt>
+          <dd>{state.runtime ? formatUptime(state.runtime.uptimeSeconds) : "--"}</dd>
+        </div>
       </dl>
 
       {state.bootstrapError ? <p className="panel-error">{state.bootstrapError}</p> : null}
     </section>
   );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes <= 0) {
+    return "0 B";
+  }
+
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let unitIndex = 0;
+
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex++;
+  }
+
+  const digits = value >= 100 || unitIndex === 0 ? 0 : 1;
+  return `${value.toFixed(digits)} ${units[unitIndex]}`;
+}
+
+function formatUptime(totalSeconds: number): string {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m ${seconds}s`;
+  }
+  return `${seconds}s`;
 }

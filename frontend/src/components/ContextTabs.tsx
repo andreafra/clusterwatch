@@ -24,6 +24,7 @@ export function ContextTabs({
         const podCount = clusterInventory?.namespaces.reduce((sum, namespace) => sum + namespace.podCount, 0) ?? 0;
         const problemPods =
           clusterInventory?.namespaces.reduce((sum, namespace) => sum + namespace.problemPods, 0) ?? 0;
+        const namespaceCount = clusterInventory?.namespaces.length ?? 0;
 
         return (
           <button
@@ -32,11 +33,12 @@ export function ContextTabs({
             className={`context-tab ${selectedTenantId === tenant.id ? "context-tab--active" : ""}`}
             onClick={() => onSelect(tenant.id)}
           >
-            <div className="context-tab__top">
-              <code>{tenant.name}</code>
+            <div className="context-tab__identity">
+              <code className="context-tab__name">{tenant.name}</code>
               <StatusPill state={snapshot?.connection ?? "pending"} />
             </div>
             <div className="context-tab__meta">
+              <span>{namespaceCount} ns</span>
               <span>{podCount} pods</span>
               <span className={problemPods > 0 ? "keyword keyword--degraded" : "keyword keyword--connected"}>
                 {problemPods} issues

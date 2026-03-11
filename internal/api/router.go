@@ -18,21 +18,24 @@ import (
 	"github.com/example/clusterwatch-local/internal/kube"
 	"github.com/example/clusterwatch-local/internal/model"
 	"github.com/example/clusterwatch-local/internal/stream"
+	"github.com/example/clusterwatch-local/internal/system"
 )
 
 type Router struct {
 	cfg      config.Config
 	manager  *kube.Manager
 	hub      *stream.Hub
+	sampler  *system.Sampler
 	logger   *slog.Logger
 	upgrader websocket.Upgrader
 }
 
-func NewRouter(cfg config.Config, manager *kube.Manager, hub *stream.Hub, logger *slog.Logger) http.Handler {
+func NewRouter(cfg config.Config, manager *kube.Manager, hub *stream.Hub, sampler *system.Sampler, logger *slog.Logger) http.Handler {
 	router := &Router{
 		cfg:     cfg,
 		manager: manager,
 		hub:     hub,
+		sampler: sampler,
 		logger:  logger,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return isAllowedWebSocketOrigin(r, cfg.Server.AllowedOrigin) },
@@ -44,6 +47,7 @@ func NewRouter(cfg config.Config, manager *kube.Manager, hub *stream.Hub, logger
 	mux.HandleFunc("/api/v1/tenants", router.handleTenants)
 	mux.HandleFunc("/api/v1/snapshots", router.handleSnapshots)
 	mux.HandleFunc("/api/v1/inventory", router.handleInventory)
+	mux.HandleFunc("/api/v1/runtime", router.handleRuntime)
 	mux.HandleFunc("/ws", router.handleWS)
 	registerDashboardRoutes(mux, logger)
 
@@ -64,6 +68,10 @@ func (r *Router) handleSnapshots(w http.ResponseWriter, _ *http.Request) {
 
 func (r *Router) handleInventory(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, r.manager.Inventory())
+}
+
+func (r *Router) handleRuntime(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, r.sampler.Snapshot())
 }
 
 func (r *Router) handleWS(w http.ResponseWriter, req *http.Request) {
@@ -96,6 +104,13 @@ func (r *Router) handleWS(w http.ResponseWriter, req *http.Request) {
 		}); err != nil {
 			return
 		}
+	}
+	if err := conn.WriteJSON(model.Event{
+		Type:      "system.runtime",
+		Timestamp: time.Now().UTC(),
+		Payload:   r.sampler.Snapshot(),
+	}); err != nil {
+		return
 	}
 
 	go func() {

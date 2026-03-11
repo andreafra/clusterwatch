@@ -13,6 +13,7 @@ import (
 	"github.com/example/clusterwatch-local/internal/config"
 	"github.com/example/clusterwatch-local/internal/kube"
 	"github.com/example/clusterwatch-local/internal/stream"
+	"github.com/example/clusterwatch-local/internal/system"
 )
 
 func main() {
@@ -28,6 +29,7 @@ func main() {
 	}
 
 	hub := stream.NewHub(logger)
+	sampler := system.NewSampler(hub, logger)
 	manager, err := kube.NewManager(cfg, hub, logger)
 	if err != nil {
 		logger.Error("create manager", "error", err)
@@ -37,6 +39,8 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
+	sampler.Start(ctx)
+
 	if err := manager.Start(ctx); err != nil {
 		logger.Error("start manager", "error", err)
 		os.Exit(1)
@@ -44,7 +48,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              cfg.Server.Address,
-		Handler:           api.NewRouter(cfg, manager, hub, logger),
+		Handler:           api.NewRouter(cfg, manager, hub, sampler, logger),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

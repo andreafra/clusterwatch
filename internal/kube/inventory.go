@@ -6,12 +6,22 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/example/clusterwatch-local/internal/model"
 )
 
-func buildInventory(tenant Tenant, namespaceItems []any, podItems []any, updatedAt time.Time) model.ClusterInventory {
+func buildInventory(
+	tenant Tenant,
+	namespaceItems []any,
+	podItems []any,
+	serviceItems []any,
+	ingressItems []any,
+	configMapItems []any,
+	secretItems []any,
+	updatedAt time.Time,
+) model.ClusterInventory {
 	namespaces := make([]model.NamespaceInventory, 0, len(namespaceItems))
 	knownNamespaces := make(map[string]*model.NamespaceInventory)
 
@@ -26,10 +36,14 @@ func buildInventory(tenant Tenant, namespaceItems []any, podItems []any, updated
 		}
 
 		entry := model.NamespaceInventory{
-			Name:  namespace.Name,
-			Phase: string(namespace.Status.Phase),
-			Age:   humanAge(namespace.CreationTimestamp.Time, updatedAt),
-			Pods:  []model.PodInventory{},
+			Name:       namespace.Name,
+			Phase:      string(namespace.Status.Phase),
+			Age:        humanAge(namespace.CreationTimestamp.Time, updatedAt),
+			Pods:       []model.PodInventory{},
+			Services:   []model.ServiceInventory{},
+			Ingresses:  []model.IngressInventory{},
+			ConfigMaps: []model.ConfigMapInventory{},
+			Secrets:    []model.SecretInventory{},
 		}
 		namespaces = append(namespaces, entry)
 		knownNamespaces[namespace.Name] = &namespaces[len(namespaces)-1]
@@ -47,14 +61,7 @@ func buildInventory(tenant Tenant, namespaceItems []any, podItems []any, updated
 
 		namespace, ok := knownNamespaces[pod.Namespace]
 		if !ok {
-			namespaces = append(namespaces, model.NamespaceInventory{
-				Name:  pod.Namespace,
-				Phase: "Active",
-				Age:   "",
-				Pods:  []model.PodInventory{},
-			})
-			namespace = &namespaces[len(namespaces)-1]
-			knownNamespaces[pod.Namespace] = namespace
+			namespace = ensureNamespace(&namespaces, knownNamespaces, pod.Namespace)
 		}
 
 		podEntry := buildPodInventory(pod, updatedAt)
@@ -68,9 +75,57 @@ func buildInventory(tenant Tenant, namespaceItems []any, podItems []any, updated
 		}
 	}
 
+	for _, item := range serviceItems {
+		service, ok := item.(*corev1.Service)
+		if !ok || !allowNamespace(tenant.Namespaces, service.Namespace) {
+			continue
+		}
+
+		namespace := ensureNamespace(&namespaces, knownNamespaces, service.Namespace)
+		namespace.Services = append(namespace.Services, buildServiceInventory(service, updatedAt))
+		namespace.ServiceCount++
+	}
+
+	for _, item := range ingressItems {
+		ingress, ok := item.(*networkingv1.Ingress)
+		if !ok || !allowNamespace(tenant.Namespaces, ingress.Namespace) {
+			continue
+		}
+
+		namespace := ensureNamespace(&namespaces, knownNamespaces, ingress.Namespace)
+		namespace.Ingresses = append(namespace.Ingresses, buildIngressInventory(ingress, updatedAt))
+		namespace.IngressCount++
+	}
+
+	for _, item := range configMapItems {
+		configMap, ok := item.(*corev1.ConfigMap)
+		if !ok || !allowNamespace(tenant.Namespaces, configMap.Namespace) {
+			continue
+		}
+
+		namespace := ensureNamespace(&namespaces, knownNamespaces, configMap.Namespace)
+		namespace.ConfigMaps = append(namespace.ConfigMaps, buildConfigMapInventory(configMap, updatedAt))
+		namespace.ConfigMapCount++
+	}
+
+	for _, item := range secretItems {
+		secret, ok := item.(*corev1.Secret)
+		if !ok || !allowNamespace(tenant.Namespaces, secret.Namespace) {
+			continue
+		}
+
+		namespace := ensureNamespace(&namespaces, knownNamespaces, secret.Namespace)
+		namespace.Secrets = append(namespace.Secrets, buildSecretInventory(secret, updatedAt))
+		namespace.SecretCount++
+	}
+
 	for i := range namespaces {
 		namespace := &namespaces[i]
 		slices.SortFunc(namespace.Pods, comparePods)
+		slices.SortFunc(namespace.Services, compareServices)
+		slices.SortFunc(namespace.Ingresses, compareIngresses)
+		slices.SortFunc(namespace.ConfigMaps, compareConfigMaps)
+		slices.SortFunc(namespace.Secrets, compareSecrets)
 	}
 	slices.SortFunc(namespaces, compareNamespaces)
 
@@ -82,6 +137,29 @@ func buildInventory(tenant Tenant, namespaceItems []any, podItems []any, updated
 		Namespaces: namespaces,
 		UpdatedAt:  updatedAt,
 	}
+}
+
+func ensureNamespace(
+	namespaces *[]model.NamespaceInventory,
+	knownNamespaces map[string]*model.NamespaceInventory,
+	name string,
+) *model.NamespaceInventory {
+	if namespace, ok := knownNamespaces[name]; ok {
+		return namespace
+	}
+
+	*namespaces = append(*namespaces, model.NamespaceInventory{
+		Name:       name,
+		Phase:      "Active",
+		Pods:       []model.PodInventory{},
+		Services:   []model.ServiceInventory{},
+		Ingresses:  []model.IngressInventory{},
+		ConfigMaps: []model.ConfigMapInventory{},
+		Secrets:    []model.SecretInventory{},
+	})
+	namespace := &(*namespaces)[len(*namespaces)-1]
+	knownNamespaces[name] = namespace
+	return namespace
 }
 
 func buildPodInventory(pod *corev1.Pod, now time.Time) model.PodInventory {
@@ -136,6 +214,101 @@ func buildPodInventory(pod *corev1.Pod, now time.Time) model.PodInventory {
 	}
 }
 
+func buildServiceInventory(service *corev1.Service, now time.Time) model.ServiceInventory {
+	ports := make([]string, 0, len(service.Spec.Ports))
+	for _, port := range service.Spec.Ports {
+		target := fmt.Sprintf("%d", port.Port)
+		if port.TargetPort.String() != "" {
+			target = fmt.Sprintf("%s->%d", port.TargetPort.String(), port.Port)
+		}
+		if port.Name != "" {
+			target = fmt.Sprintf("%s:%s", port.Name, target)
+		}
+		ports = append(ports, fmt.Sprintf("%s/%s", target, port.Protocol))
+	}
+
+	externalIP := ""
+	if len(service.Status.LoadBalancer.Ingress) > 0 {
+		ingress := service.Status.LoadBalancer.Ingress[0]
+		externalIP = firstNonEmpty(ingress.IP, ingress.Hostname)
+	} else if len(service.Spec.ExternalIPs) > 0 {
+		externalIP = service.Spec.ExternalIPs[0]
+	}
+
+	return model.ServiceInventory{
+		Name:       service.Name,
+		Type:       string(service.Spec.Type),
+		ClusterIP:  service.Spec.ClusterIP,
+		ExternalIP: externalIP,
+		Ports:      ports,
+		Selector:   len(service.Spec.Selector) > 0,
+		Age:        humanAge(service.CreationTimestamp.Time, now),
+	}
+}
+
+func buildIngressInventory(ingress *networkingv1.Ingress, now time.Time) model.IngressInventory {
+	hosts := make([]string, 0, len(ingress.Spec.Rules))
+	paths := []string{}
+	targets := []string{}
+	for _, rule := range ingress.Spec.Rules {
+		if rule.Host != "" {
+			hosts = append(hosts, rule.Host)
+		}
+		if rule.HTTP == nil {
+			continue
+		}
+		for _, path := range rule.HTTP.Paths {
+			if path.Path != "" {
+				paths = append(paths, path.Path)
+			}
+			if path.Backend.Service != nil {
+				targets = append(targets, fmt.Sprintf("%s:%d", path.Backend.Service.Name, path.Backend.Service.Port.Number))
+			}
+		}
+	}
+
+	addresses := make([]string, 0, len(ingress.Status.LoadBalancer.Ingress))
+	for _, item := range ingress.Status.LoadBalancer.Ingress {
+		if value := firstNonEmpty(item.IP, item.Hostname); value != "" {
+			addresses = append(addresses, value)
+		}
+	}
+
+	className := ""
+	if ingress.Spec.IngressClassName != nil {
+		className = *ingress.Spec.IngressClassName
+	}
+
+	return model.IngressInventory{
+		Name:       ingress.Name,
+		ClassName:  className,
+		Hosts:      dedupeAndSort(hosts),
+		Paths:      dedupeAndSort(paths),
+		Targets:    dedupeAndSort(targets),
+		Address:    firstJoined(addresses),
+		TLSEnabled: len(ingress.Spec.TLS) > 0,
+		Age:        humanAge(ingress.CreationTimestamp.Time, now),
+	}
+}
+
+func buildConfigMapInventory(configMap *corev1.ConfigMap, now time.Time) model.ConfigMapInventory {
+	return model.ConfigMapInventory{
+		Name:       configMap.Name,
+		DataKeys:   len(configMap.Data),
+		BinaryKeys: len(configMap.BinaryData),
+		Age:        humanAge(configMap.CreationTimestamp.Time, now),
+	}
+}
+
+func buildSecretInventory(secret *corev1.Secret, now time.Time) model.SecretInventory {
+	return model.SecretInventory{
+		Name:     secret.Name,
+		Type:     string(secret.Type),
+		DataKeys: len(secret.Data),
+		Age:      humanAge(secret.CreationTimestamp.Time, now),
+	}
+}
+
 func compareNamespaces(a, b model.NamespaceInventory) int {
 	if a.ProblemPods != b.ProblemPods {
 		if a.ProblemPods > b.ProblemPods {
@@ -149,6 +322,22 @@ func compareNamespaces(a, b model.NamespaceInventory) int {
 		}
 		return 1
 	}
+	return compareStrings(a.Name, b.Name)
+}
+
+func compareServices(a, b model.ServiceInventory) int {
+	return compareStrings(a.Name, b.Name)
+}
+
+func compareIngresses(a, b model.IngressInventory) int {
+	return compareStrings(a.Name, b.Name)
+}
+
+func compareConfigMaps(a, b model.ConfigMapInventory) int {
+	return compareStrings(a.Name, b.Name)
+}
+
+func compareSecrets(a, b model.SecretInventory) int {
 	return compareStrings(a.Name, b.Name)
 }
 
@@ -183,6 +372,10 @@ func compareStrings(a, b string) int {
 
 func containsNamespace(namespaces []string, value string) bool {
 	return slices.Contains(namespaces, value)
+}
+
+func allowNamespace(namespaces []string, value string) bool {
+	return len(namespaces) == 0 || containsNamespace(namespaces, value)
 }
 
 func humanAge(from, to time.Time) string {
@@ -261,4 +454,29 @@ func lastExitCode(state corev1.ContainerState) int32 {
 		return 0
 	}
 	return state.Terminated.ExitCode
+}
+
+func dedupeAndSort(values []string) []string {
+	if len(values) == 0 {
+		return []string{}
+	}
+
+	slices.Sort(values)
+	return slices.Compact(values)
+}
+
+func firstJoined(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }

@@ -38,22 +38,22 @@ type ClusterInventory struct {
 }
 
 type NamespaceInventory struct {
-	Name           string               `json:"name"`
-	Phase          string               `json:"phase"`
-	Age            string               `json:"age"`
-	PodCount       int                  `json:"podCount"`
-	ReadyPods      int                  `json:"readyPods"`
-	ProblemPods    int                  `json:"problemPods"`
-	RestartCount   int                  `json:"restartCount"`
-	ServiceCount   int                  `json:"serviceCount"`
-	IngressCount   int                  `json:"ingressCount"`
-	ConfigMapCount int                  `json:"configMapCount"`
-	SecretCount    int                  `json:"secretCount"`
-	Pods           []PodInventory       `json:"pods"`
-	Services       []ServiceInventory   `json:"services"`
-	Ingresses      []IngressInventory   `json:"ingresses"`
-	ConfigMaps     []ConfigMapInventory `json:"configMaps"`
-	Secrets        []SecretInventory    `json:"secrets"`
+	Name            string              `json:"name"`
+	Phase           string              `json:"phase"`
+	Age             string              `json:"age"`
+	PodCount        int                 `json:"podCount"`
+	ReadyPods       int                 `json:"readyPods"`
+	ProblemPods     int                 `json:"problemPods"`
+	RestartCount    int                 `json:"restartCount"`
+	ServiceCount    int                 `json:"serviceCount"`
+	IngressCount    int                 `json:"ingressCount"`
+	ConfigMapCount  int                 `json:"configMapCount"`
+	SecretCount     int                 `json:"secretCount"`
+	Pods            []PodInventory      `json:"pods"`
+	Services        []ServiceInventory  `json:"services"`
+	Ingresses       []IngressInventory  `json:"ingresses"`
+	ConfigMaps      []ConfigMapInventory `json:"configMaps"`
+	Secrets         []SecretInventory   `json:"secrets"`
 }
 
 type PodInventory struct {
@@ -88,13 +88,13 @@ type ContainerInventory struct {
 }
 
 type ServiceInventory struct {
-	Name       string   `json:"name"`
-	Type       string   `json:"type"`
-	ClusterIP  string   `json:"clusterIp"`
-	ExternalIP string   `json:"externalIp"`
-	Ports      []string `json:"ports"`
-	Selector   bool     `json:"selector"`
-	Age        string   `json:"age"`
+	Name         string   `json:"name"`
+	Type         string   `json:"type"`
+	ClusterIP    string   `json:"clusterIp"`
+	ExternalIP   string   `json:"externalIp"`
+	Ports        []string `json:"ports"`
+	Selector     bool     `json:"selector"`
+	Age          string   `json:"age"`
 }
 
 type IngressInventory struct {
@@ -109,10 +109,10 @@ type IngressInventory struct {
 }
 
 type ConfigMapInventory struct {
-	Name       string `json:"name"`
-	DataKeys   int    `json:"dataKeys"`
-	BinaryKeys int    `json:"binaryKeys"`
-	Age        string `json:"age"`
+	Name      string `json:"name"`
+	DataKeys  int    `json:"dataKeys"`
+	BinaryKeys int   `json:"binaryKeys"`
+	Age       string `json:"age"`
 }
 
 type SecretInventory struct {
@@ -127,14 +127,4 @@ type Event struct {
 	TenantID  string    `json:"tenantId,omitempty"`
 	Timestamp time.Time `json:"timestamp"`
 	Payload   any       `json:"payload"`
-}
-
-type RuntimeSnapshot struct {
-	CPUPercent     float64   `json:"cpuPercent"`
-	RSSBytes       uint64    `json:"rssBytes"`
-	HeapAllocBytes uint64    `json:"heapAllocBytes"`
-	Goroutines     int       `json:"goroutines"`
-	GCCount        uint32    `json:"gcCount"`
-	UptimeSeconds  int64     `json:"uptimeSeconds"`
-	CollectedAt    time.Time `json:"collectedAt"`
 }

@@ -1,9 +1,11 @@
 import { useEffect, useReducer } from "react";
-import { fetchInventory, fetchSnapshots, fetchTenants, openDashboardStream } from "../api";
+import { fetchInventory, fetchRuntime, fetchSnapshots, fetchTenants, openDashboardStream } from "../api";
 import type {
   ClusterInventory,
   ClusterSnapshot,
   DashboardState,
+  NamespaceInventory,
+  RuntimeSnapshot,
   StreamEnvelope,
   Tenant,
   TransportEvent,
@@ -15,8 +17,10 @@ type Action =
       tenants: Tenant[];
       snapshots: ClusterSnapshot[];
       inventory: ClusterInventory[];
+      runtime: RuntimeSnapshot;
     }
   | { type: "inventoryLoaded"; inventory: ClusterInventory[] }
+  | { type: "runtimeLoaded"; runtime: RuntimeSnapshot }
   | { type: "bootstrapFailure"; message: string }
   | { type: "streamConnected" }
   | { type: "streamDisconnected" }
@@ -27,9 +31,11 @@ const initialState: DashboardState = {
   tenants: [],
   snapshots: {},
   inventory: {},
+  runtime: undefined,
   events: [],
   streamConnected: false,
   lastMessageAt: undefined,
+  inventoryRefreshAt: undefined,
   bootstrapError: undefined,
 };
 
@@ -56,9 +62,31 @@ function normalizeTenant(tenant: Tenant): Tenant {
 
 function inventoryByTenant(items: ClusterInventory[]): Record<string, ClusterInventory> {
   return items.reduce<Record<string, ClusterInventory>>((acc, item) => {
-    acc[item.tenantId] = item;
+    acc[item.tenantId] = normalizeInventory(item);
     return acc;
   }, {});
+}
+
+function normalizeNamespaceInventory(namespace: NamespaceInventory): NamespaceInventory {
+  return {
+    ...namespace,
+    pods: namespace.pods ?? [],
+    services: namespace.services ?? [],
+    ingresses: namespace.ingresses ?? [],
+    configMaps: namespace.configMaps ?? [],
+    secrets: namespace.secrets ?? [],
+    serviceCount: namespace.serviceCount ?? namespace.services?.length ?? 0,
+    ingressCount: namespace.ingressCount ?? namespace.ingresses?.length ?? 0,
+    configMapCount: namespace.configMapCount ?? namespace.configMaps?.length ?? 0,
+    secretCount: namespace.secretCount ?? namespace.secrets?.length ?? 0,
+  };
+}
+
+function normalizeInventory(inventory: ClusterInventory): ClusterInventory {
+  return {
+    ...inventory,
+    namespaces: (inventory.namespaces ?? []).map(normalizeNamespaceInventory),
+  };
 }
 
 function isSnapshotPayload(payload: unknown): payload is Partial<ClusterSnapshot> {
@@ -68,6 +96,22 @@ function isSnapshotPayload(payload: unknown): payload is Partial<ClusterSnapshot
 
   const candidate = payload as Partial<ClusterSnapshot>;
   return typeof candidate.tenantId === "string" && typeof candidate.updatedAt === "string";
+}
+
+function isRuntimePayload(payload: unknown): payload is RuntimeSnapshot {
+  if (!payload || typeof payload !== "object") {
+    return false;
+  }
+
+  const candidate = payload as Partial<RuntimeSnapshot>;
+  return (
+    typeof candidate.cpuPercent === "number" &&
+    typeof candidate.heapAllocBytes === "number" &&
+    typeof candidate.goroutines === "number" &&
+    typeof candidate.gcCount === "number" &&
+    typeof candidate.uptimeSeconds === "number" &&
+    typeof candidate.collectedAt === "string"
+  );
 }
 
 function normalizeSnapshot(snapshot: Partial<ClusterSnapshot>): ClusterSnapshot {
@@ -132,6 +176,7 @@ function reducer(state: DashboardState, action: Action): DashboardState {
         tenants: action.tenants.map(normalizeTenant),
         snapshots,
         inventory: inventoryByTenant(action.inventory),
+        runtime: action.runtime,
         bootstrapError: undefined,
       };
     }
@@ -139,6 +184,11 @@ function reducer(state: DashboardState, action: Action): DashboardState {
       return {
         ...state,
         inventory: inventoryByTenant(action.inventory),
+      };
+    case "runtimeLoaded":
+      return {
+        ...state,
+        runtime: action.runtime,
       };
     case "bootstrapFailure":
       return {
@@ -163,12 +213,22 @@ function reducer(state: DashboardState, action: Action): DashboardState {
         bootstrapError: action.message,
       };
     case "streamMessage":
+      if (isRuntimePayload(action.message.payload)) {
+        return {
+          ...state,
+          runtime: action.message.payload,
+          events: prependEvent(state.events, toTransportEvent(action.message)),
+          lastMessageAt: action.message.timestamp,
+        };
+      }
+
       if (isSnapshotPayload(action.message.payload)) {
         return {
           ...state,
           snapshots: upsertSnapshot(state.snapshots, normalizeSnapshot(action.message.payload)),
           events: prependEvent(state.events, toTransportEvent(action.message)),
           lastMessageAt: action.message.timestamp,
+          inventoryRefreshAt: action.message.timestamp,
         };
       }
 
@@ -190,12 +250,13 @@ export function useDashboardState(): DashboardState {
 
     async function bootstrap() {
       try {
-        const [tenants, snapshots, inventory] = await Promise.all([
+        const [tenants, snapshots, inventory, runtime] = await Promise.all([
           fetchTenants(controller.signal),
           fetchSnapshots(controller.signal),
           fetchInventory(controller.signal),
+          fetchRuntime(controller.signal),
         ]);
-        dispatch({ type: "bootstrapSuccess", tenants, snapshots, inventory });
+        dispatch({ type: "bootstrapSuccess", tenants, snapshots, inventory, runtime });
       } catch (error) {
         if (controller.signal.aborted) {
           return;
@@ -225,7 +286,7 @@ export function useDashboardState(): DashboardState {
   }, []);
 
   useEffect(() => {
-    if (state.lastMessageAt === undefined) {
+    if (state.inventoryRefreshAt === undefined) {
       return;
     }
 
@@ -235,7 +296,7 @@ export function useDashboardState(): DashboardState {
       .catch(() => undefined);
 
     return () => controller.abort();
-  }, [state.lastMessageAt]);
+  }, [state.inventoryRefreshAt]);
 
   return state;
 }

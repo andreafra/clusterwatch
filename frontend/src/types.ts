@@ -58,7 +58,15 @@ export type NamespaceInventory = {
   readyPods: number;
   problemPods: number;
   restartCount: number;
+  serviceCount: number;
+  ingressCount: number;
+  configMapCount: number;
+  secretCount: number;
   pods: PodInventory[];
+  services: ServiceInventory[];
+  ingresses: IngressInventory[];
+  configMaps: ConfigMapInventory[];
+  secrets: SecretInventory[];
 };
 
 export type PodInventory = {
@@ -92,6 +100,41 @@ export type ContainerInventory = {
   limitsMemory: string;
 };
 
+export type ServiceInventory = {
+  name: string;
+  type: string;
+  clusterIp: string;
+  externalIp: string;
+  ports: string[];
+  selector: boolean;
+  age: string;
+};
+
+export type IngressInventory = {
+  name: string;
+  className: string;
+  hosts: string[];
+  paths: string[];
+  targets: string[];
+  address: string;
+  tlsEnabled: boolean;
+  age: string;
+};
+
+export type ConfigMapInventory = {
+  name: string;
+  dataKeys: number;
+  binaryKeys: number;
+  age: string;
+};
+
+export type SecretInventory = {
+  name: string;
+  type: string;
+  dataKeys: number;
+  age: string;
+};
+
 export type TransportEvent = {
   id: string;
   type: string;
@@ -109,12 +152,24 @@ export type StreamEnvelope = {
   payload: unknown;
 };
 
+export type RuntimeSnapshot = {
+  cpuPercent: number;
+  rssBytes: number;
+  heapAllocBytes: number;
+  goroutines: number;
+  gcCount: number;
+  uptimeSeconds: number;
+  collectedAt: string;
+};
+
 export type DashboardState = {
   tenants: Tenant[];
   snapshots: Record<string, ClusterSnapshot>;
   inventory: Record<string, ClusterInventory>;
+  runtime: RuntimeSnapshot | undefined;
   events: TransportEvent[];
   streamConnected: boolean;
   lastMessageAt: string | undefined;
+  inventoryRefreshAt: string | undefined;
   bootstrapError: string | undefined;
 };
