@@ -1,6 +1,7 @@
 import { useEffect, useReducer } from "react";
-import { fetchSnapshots, fetchTenants, openDashboardStream } from "../api";
+import { fetchInventory, fetchSnapshots, fetchTenants, openDashboardStream } from "../api";
 import type {
+  ClusterInventory,
   ClusterSnapshot,
   DashboardState,
   StreamEnvelope,
@@ -9,7 +10,13 @@ import type {
 } from "../types";
 
 type Action =
-  | { type: "bootstrapSuccess"; tenants: Tenant[]; snapshots: ClusterSnapshot[] }
+  | {
+      type: "bootstrapSuccess";
+      tenants: Tenant[];
+      snapshots: ClusterSnapshot[];
+      inventory: ClusterInventory[];
+    }
+  | { type: "inventoryLoaded"; inventory: ClusterInventory[] }
   | { type: "bootstrapFailure"; message: string }
   | { type: "streamConnected" }
   | { type: "streamDisconnected" }
@@ -19,6 +26,7 @@ type Action =
 const initialState: DashboardState = {
   tenants: [],
   snapshots: {},
+  inventory: {},
   events: [],
   streamConnected: false,
   lastMessageAt: undefined,
@@ -44,6 +52,13 @@ function normalizeTenant(tenant: Tenant): Tenant {
     ...tenant,
     namespaces: tenant.namespaces ?? [],
   };
+}
+
+function inventoryByTenant(items: ClusterInventory[]): Record<string, ClusterInventory> {
+  return items.reduce<Record<string, ClusterInventory>>((acc, item) => {
+    acc[item.tenantId] = item;
+    return acc;
+  }, {});
 }
 
 function isSnapshotPayload(payload: unknown): payload is Partial<ClusterSnapshot> {
@@ -116,9 +131,15 @@ function reducer(state: DashboardState, action: Action): DashboardState {
         ...state,
         tenants: action.tenants.map(normalizeTenant),
         snapshots,
+        inventory: inventoryByTenant(action.inventory),
         bootstrapError: undefined,
       };
     }
+    case "inventoryLoaded":
+      return {
+        ...state,
+        inventory: inventoryByTenant(action.inventory),
+      };
     case "bootstrapFailure":
       return {
         ...state,
@@ -169,11 +190,12 @@ export function useDashboardState(): DashboardState {
 
     async function bootstrap() {
       try {
-        const [tenants, snapshots] = await Promise.all([
+        const [tenants, snapshots, inventory] = await Promise.all([
           fetchTenants(controller.signal),
           fetchSnapshots(controller.signal),
+          fetchInventory(controller.signal),
         ]);
-        dispatch({ type: "bootstrapSuccess", tenants, snapshots });
+        dispatch({ type: "bootstrapSuccess", tenants, snapshots, inventory });
       } catch (error) {
         if (controller.signal.aborted) {
           return;
@@ -201,6 +223,19 @@ export function useDashboardState(): DashboardState {
 
     return close;
   }, []);
+
+  useEffect(() => {
+    if (state.lastMessageAt === undefined) {
+      return;
+    }
+
+    const controller = new AbortController();
+    void fetchInventory(controller.signal)
+      .then((inventory) => dispatch({ type: "inventoryLoaded", inventory }))
+      .catch(() => undefined);
+
+    return () => controller.abort();
+  }, [state.lastMessageAt]);
 
   return state;
 }

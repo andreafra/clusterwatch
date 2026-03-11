@@ -43,6 +43,7 @@ func NewRouter(cfg config.Config, manager *kube.Manager, hub *stream.Hub, logger
 	mux.HandleFunc("/healthz", router.handleHealth)
 	mux.HandleFunc("/api/v1/tenants", router.handleTenants)
 	mux.HandleFunc("/api/v1/snapshots", router.handleSnapshots)
+	mux.HandleFunc("/api/v1/inventory", router.handleInventory)
 	mux.HandleFunc("/ws", router.handleWS)
 	registerDashboardRoutes(mux, logger)
 
@@ -59,6 +60,10 @@ func (r *Router) handleTenants(w http.ResponseWriter, _ *http.Request) {
 
 func (r *Router) handleSnapshots(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, r.manager.Snapshots())
+}
+
+func (r *Router) handleInventory(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, r.manager.Inventory())
 }
 
 func (r *Router) handleWS(w http.ResponseWriter, req *http.Request) {

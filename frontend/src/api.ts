@@ -1,4 +1,4 @@
-import type { ClusterSnapshot, StreamEnvelope, Tenant } from "./types";
+import type { ClusterInventory, ClusterSnapshot, StreamEnvelope, Tenant } from "./types";
 
 const backendHttpOrigin = "http://localhost:42069";
 const backendWsOrigin = "ws://localhost:42069";
@@ -19,6 +19,11 @@ export async function fetchTenants(signal?: AbortSignal): Promise<Tenant[]> {
 export async function fetchSnapshots(signal?: AbortSignal): Promise<ClusterSnapshot[]> {
   const response = await fetch(`${backendHttpOrigin}/api/v1/snapshots`, signal ? { signal } : {});
   return parseJson<ClusterSnapshot[]>(response);
+}
+
+export async function fetchInventory(signal?: AbortSignal): Promise<ClusterInventory[]> {
+  const response = await fetch(`${backendHttpOrigin}/api/v1/inventory`, signal ? { signal } : {});
+  return parseJson<ClusterInventory[]>(response);
 }
 
 export function openDashboardStream(

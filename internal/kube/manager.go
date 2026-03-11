@@ -25,6 +25,7 @@ type Manager struct {
 	mu        sync.RWMutex
 	tenants   []Tenant
 	snapshots map[string]model.ClusterSnapshot
+	inventory map[string]model.ClusterInventory
 }
 
 func NewManager(cfg config.Config, hub *stream.Hub, logger *slog.Logger) (*Manager, error) {
@@ -34,8 +35,10 @@ func NewManager(cfg config.Config, hub *stream.Hub, logger *slog.Logger) (*Manag
 	}
 
 	snapshots := make(map[string]model.ClusterSnapshot, len(tenants))
+	inventory := make(map[string]model.ClusterInventory, len(tenants))
 
 	for _, tenant := range tenants {
+		now := time.Now().UTC()
 		snapshots[tenant.ID] = model.ClusterSnapshot{
 			TenantID:   tenant.ID,
 			TenantName: tenant.Name,
@@ -43,7 +46,15 @@ func NewManager(cfg config.Config, hub *stream.Hub, logger *slog.Logger) (*Manag
 			AWSProfile: tenant.AWSProfile,
 			Connection: "pending",
 			Message:    "waiting for informer sync",
-			UpdatedAt:  time.Now().UTC(),
+			UpdatedAt:  now,
+		}
+		inventory[tenant.ID] = model.ClusterInventory{
+			TenantID:   tenant.ID,
+			TenantName: tenant.Name,
+			Context:    tenant.Context,
+			AWSProfile: tenant.AWSProfile,
+			Namespaces: []model.NamespaceInventory{},
+			UpdatedAt:  now,
 		}
 	}
 
@@ -53,6 +64,7 @@ func NewManager(cfg config.Config, hub *stream.Hub, logger *slog.Logger) (*Manag
 		logger:    logger,
 		tenants:   tenants,
 		snapshots: snapshots,
+		inventory: inventory,
 	}, nil
 }
 
@@ -96,6 +108,20 @@ func (m *Manager) Snapshots() []model.ClusterSnapshot {
 	return out
 }
 
+func (m *Manager) Inventory() []model.ClusterInventory {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	out := make([]model.ClusterInventory, 0, len(m.inventory))
+	for _, inventory := range m.inventory {
+		out = append(out, inventory)
+	}
+	slices.SortFunc(out, func(a, b model.ClusterInventory) int {
+		return compareStrings(a.TenantName, b.TenantName)
+	})
+	return out
+}
+
 func (m *Manager) runTenant(ctx context.Context, tenant Tenant) {
 	for {
 		if ctx.Err() != nil {
@@ -104,7 +130,15 @@ func (m *Manager) runTenant(ctx context.Context, tenant Tenant) {
 
 		if err := m.watchTenant(ctx, tenant); err != nil {
 			m.logger.Error("tenant monitor stopped", "tenant", tenant.ID, "error", err)
-			m.updateSnapshot(tenant, model.ResourceCounts{}, "degraded", err.Error())
+			now := time.Now().UTC()
+			m.updateState(tenant, model.ResourceCounts{}, model.ClusterInventory{
+				TenantID:   tenant.ID,
+				TenantName: tenant.Name,
+				Context:    tenant.Context,
+				AWSProfile: tenant.AWSProfile,
+				Namespaces: []model.NamespaceInventory{},
+				UpdatedAt:  now,
+			}, "degraded", err.Error(), now)
 		}
 
 		select {
@@ -133,13 +167,15 @@ func (m *Manager) watchTenant(ctx context.Context, tenant Tenant) error {
 	deployments := factory.Apps().V1().Deployments().Informer()
 
 	publish := func(message string) {
+		now := time.Now().UTC()
 		counts := model.ResourceCounts{
 			Namespaces:  countObjects(namespaces.GetStore().List(), tenant.Namespaces),
 			Nodes:       countObjects(nodes.GetStore().List(), nil),
 			Pods:        countObjects(pods.GetStore().List(), tenant.Namespaces),
 			Deployments: countObjects(deployments.GetStore().List(), tenant.Namespaces),
 		}
-		m.updateSnapshot(tenant, counts, "connected", message)
+		inventory := buildInventory(tenant, namespaces.GetStore().List(), pods.GetStore().List(), now)
+		m.updateState(tenant, counts, inventory, "connected", message, now)
 	}
 
 	handler := cache.ResourceEventHandlerFuncs{
@@ -180,7 +216,7 @@ func (m *Manager) watchTenant(ctx context.Context, tenant Tenant) error {
 	return nil
 }
 
-func (m *Manager) updateSnapshot(tenant Tenant, counts model.ResourceCounts, connection, message string) {
+func (m *Manager) updateState(tenant Tenant, counts model.ResourceCounts, inventory model.ClusterInventory, connection, message string, updatedAt time.Time) {
 	snapshot := model.ClusterSnapshot{
 		TenantID:       tenant.ID,
 		TenantName:     tenant.Name,
@@ -189,11 +225,12 @@ func (m *Manager) updateSnapshot(tenant Tenant, counts model.ResourceCounts, con
 		Connection:     connection,
 		Message:        message,
 		ResourceCounts: counts,
-		UpdatedAt:      time.Now().UTC(),
+		UpdatedAt:      updatedAt,
 	}
 
 	m.mu.Lock()
 	m.snapshots[tenant.ID] = snapshot
+	m.inventory[tenant.ID] = inventory
 	m.mu.Unlock()
 
 	m.hub.Publish(model.Event{

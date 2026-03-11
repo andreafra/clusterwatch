@@ -29,12 +29,12 @@ type ClusterSnapshot struct {
 }
 
 type ClusterInventory struct {
-	TenantID   string               `json:"tenantId"`
-	TenantName string               `json:"tenantName"`
-	Context    string               `json:"context"`
-	AWSProfile string               `json:"awsProfile"`
-	Namespaces []NamespaceInventory `json:"namespaces"`
-	UpdatedAt  time.Time            `json:"updatedAt"`
+	TenantID    string               `json:"tenantId"`
+	TenantName  string               `json:"tenantName"`
+	Context     string               `json:"context"`
+	AWSProfile  string               `json:"awsProfile"`
+	Namespaces  []NamespaceInventory `json:"namespaces"`
+	UpdatedAt   time.Time            `json:"updatedAt"`
 }
 
 type NamespaceInventory struct {
